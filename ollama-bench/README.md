@@ -28,7 +28,7 @@ tests.
 
 ## Output
 
-A line per task while it runs, then a summary:
+A line per task while it runs, then a summary (numbers below are illustrative):
 
 ```
 TASK      SKILL                   gemma4-32k:31b-it-q4_K_M  qwen3-coder-64k:30b
