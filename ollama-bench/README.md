@@ -16,7 +16,7 @@ only once. Expect a few minutes per model; longer for dense or "thinking" models
 
 | Task | Skill | Graded by |
 |---|---|---|
-| `code` | coding: implement a duration parser from a precise spec | runs the code against 20 hidden test cases |
+| `code` | coding: implement a duration parser from a precise spec | runs the code against 19 hidden test cases, naming any that fail |
 | `bug` | code review: find a planted off-by-one bug | `LINE: 8` |
 | `math` | multi-step arithmetic with a timeline | `ANSWER: 29.8` |
 | `schedule` | planning under constraints (the greedy plan is wrong) | `ANSWER: 10` |
@@ -46,11 +46,14 @@ read *why* a model failed, and compare the `design` answers side by side.
 
 ## Fairness notes
 
-- Runs at temperature 0 with a fixed seed, so reruns give the same answers.
-- `<think>` blocks are stripped before grading; thinking time still counts
-  toward speed and total time.
-- Answers are capped at 8192 tokens (`--num-predict`). A thinking model that
-  runs out shows "empty answer".
+- Uses each model's own sampling settings with a fixed seed. Forcing
+  temperature 0 (`--temperature 0`) can make thinking models repeat themselves
+  until they hit the token limit.
+- Thinking is stripped before grading but saved in the answer file; thinking
+  time still counts toward speed and total time.
+- Answers are capped at 8192 tokens (`--num-predict`). A model that runs out
+  before answering is reported as hitting the limit; read its Thinking section
+  to see whether it was making progress or looping.
 - Six tasks are a quick signal, not a leaderboard. One FAIL can be bad luck;
   a pattern (e.g. failing both reasoning tasks) is the real result.
 - The `code` task runs the model's code on your machine (in a temp folder,

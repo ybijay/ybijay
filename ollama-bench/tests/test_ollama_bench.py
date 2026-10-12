@@ -64,6 +64,13 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(ob.check_code("no code here").status, "FAIL")
         self.assertEqual(ob.check_code("```python\nwhile True: pass\n```").status, "FAIL")
 
+    def test_code_failure_names_the_input(self):
+        rejects_zero = GOOD_CODE.replace("    return d *", "    if d + h + mi + se == 0:\n        raise ValueError\n    return d *")
+        res = ob.check_code(rejects_zero)
+        self.assertEqual(res.status, "FAIL")
+        self.assertIn("'0s' raised ValueError, want 0", res.detail)
+        self.assertIn("1/19 cases failed", res.detail)
+
     def test_number_answers(self):
         check = ob.check_number(29.8)
         self.assertEqual(check("work...\nANSWER: 29.8").status, "PASS")
@@ -90,13 +97,17 @@ class EndToEndTests(unittest.TestCase):
     def test_run_against_fake_ollama(self):
         replies = {"code": GOOD_CODE, "bug": "LINE: 8", "math": "ANSWER: 29.8",
                    "schedule": "ANSWER: 12", "format": "- a\n- b\n- c", "design": "word " * 300}
+        seen_options = []
 
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 task = next(t for t, (_, p, _) in ob.TASKS.items() if p == body["prompt"])
-                out = json.dumps({"response": replies[task], "eval_count": 100,
-                                  "eval_duration": 5_000_000_000}).encode()
+                seen_options.append(body["options"])
+                reply = {"response": replies[task], "eval_count": 100, "eval_duration": 5_000_000_000}
+                if body["model"] == "thinker":
+                    reply.update(response="", thinking="hmm " * 50, done_reason="length")
+                out = json.dumps(reply).encode()
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(out)
@@ -109,7 +120,7 @@ class EndToEndTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             buf = io.StringIO()
             with redirect_stdout(buf):
-                rc = ob.main(["m1", "--host", f"http://127.0.0.1:{server.server_port}", "--out", d])
+                rc = ob.main(["m1", "thinker", "--host", f"http://127.0.0.1:{server.server_port}", "--out", d])
             server.shutdown()
             server.server_close()
             out = buf.getvalue()
@@ -118,6 +129,10 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn("20.0", out)  # 100 tokens / 5 s
             self.assertIn("over 250", out)
             self.assertTrue((Path(d) / "m1" / "code.md").exists())
+            self.assertIn("hit the 8192-token limit", out)
+            self.assertIn("## Thinking (50 words)", (Path(d) / "thinker" / "math.md").read_text())
+            self.assertTrue(all("temperature" not in o for o in seen_options))
+            self.assertTrue(all(o["seed"] == 42 for o in seen_options))
 
 
 if __name__ == "__main__":

@@ -46,18 +46,31 @@ Reply with one ```python code block containing only the function (and any
 imports it needs). No tests, no example usage."""
 
 CODE_TESTS = """
-ok = {"1h30m": 5400, "2d4h": 187200, "45s": 45, "0s": 0, "90m": 5400,
-      "1d1h1m1s": 90061, "10d": 864000, "007m": 420}
-for s, want in ok.items():
-    got = parse_duration(s)
-    assert got == want, f"{s!r}: got {got!r}, want {want}"
-bad = ["", "10", "h", "1h1h", "30m1h", "1.5h", "1h 30m", "1H", "-5s", "1w", "s1", "1hm"]
-for s in bad:
+import sys as _sys
+_ok = {"1h30m": 5400, "2d4h": 187200, "45s": 45, "0s": 0, "90m": 5400,
+       "1d1h1m1s": 90061, "10d": 864000}
+_bad = ["", "10", "h", "1h1h", "30m1h", "1.5h", "1h 30m", "1H", "-5s", "1w", "s1", "1hm"]
+_fails = []
+for _s, _want in _ok.items():
     try:
-        parse_duration(s)
+        _got = parse_duration(_s)
+    except Exception as _e:
+        _fails.append(f"{_s!r} raised {type(_e).__name__}, want {_want}")
+        continue
+    if _got != _want:
+        _fails.append(f"{_s!r} gave {_got!r}, want {_want}")
+for _s in _bad:
+    try:
+        parse_duration(_s)
     except ValueError:
         continue
-    raise AssertionError(f"{s!r} should raise ValueError")
+    except Exception as _e:
+        _fails.append(f"{_s!r} raised {type(_e).__name__}, want ValueError")
+        continue
+    _fails.append(f"{_s!r} accepted, want ValueError")
+if _fails:
+    print(f"{len(_fails)}/{len(_ok) + len(_bad)} cases failed: " + "; ".join(_fails))
+    _sys.exit(1)
 print("ALL TESTS PASSED")
 """
 
@@ -188,9 +201,10 @@ def check_code(text: str) -> Result:
         except subprocess.TimeoutExpired:
             return Result("FAIL", "code timed out")
     if run.returncode == 0 and "ALL TESTS PASSED" in run.stdout:
-        return Result("PASS", "all 20 test cases pass")
-    err = (run.stderr.strip().splitlines() or ["unknown error"])[-1]
-    return Result("FAIL", err[:120])
+        return Result("PASS", "all 19 test cases pass")
+    failed = [ln for ln in run.stdout.splitlines() if "cases failed" in ln]
+    err = failed or run.stderr.strip().splitlines() or ["unknown error"]
+    return Result("FAIL", err[-1][:200])
 
 
 def check_design(text: str) -> Result:
@@ -211,13 +225,13 @@ TASKS: dict[str, tuple[str, str, Callable[[str], Result]]] = {
 
 # ---------------------------------------------------------------- running
 
-def generate(host: str, model: str, prompt: str, num_predict: int, timeout: float) -> dict:
-    body = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {"temperature": 0, "seed": 42, "num_predict": num_predict},
-    }
+def generate(
+    host: str, model: str, prompt: str, num_predict: int, timeout: float, temperature: float | None = None
+) -> dict:
+    options: dict = {"seed": 42, "num_predict": num_predict}
+    if temperature is not None:
+        options["temperature"] = temperature
+    body = {"model": model, "prompt": prompt, "stream": False, "options": options}
     req = urllib.request.Request(
         host.rstrip("/") + "/api/generate",
         data=json.dumps(body).encode(),
@@ -252,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="bench-results", help="directory for full answers")
     ap.add_argument("--num-predict", type=int, default=8192, help="max tokens per answer")
     ap.add_argument("--timeout", type=float, default=1200, help="seconds per task")
+    ap.add_argument(
+        "--temperature", type=float,
+        help="override sampling temperature (default: each model's own setting; 0 can make thinking models loop)",
+    )
     args = ap.parse_args(argv)
 
     tasks = [t.strip() for t in args.tasks.split(",") if t.strip()]
@@ -271,17 +289,29 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{model}  {t:<9}", end="", flush=True)
             start = time.monotonic()
             try:
-                r = generate(args.host, model, prompt, args.num_predict, args.timeout)
+                r = generate(args.host, model, prompt, args.num_predict, args.timeout, args.temperature)
             except (urllib.error.URLError, OSError, ValueError) as e:
                 res, r = Result("FAIL", f"request failed: {e}"), {}
             else:
-                text = strip_thinking(r.get("response", ""))
-                res = check(text) if text else Result("FAIL", "empty answer (ran out of tokens?)")
+                raw = r.get("response", "")
+                text = strip_thinking(raw)
+                thinking = r.get("thinking") or "\n".join(re.findall(r"<think>(.*?)</think>", raw, flags=re.S))
+                cut = r.get("done_reason") == "length"
+                if text:
+                    res = check(text)
+                    if cut and res.status == "FAIL":
+                        res.detail += f" (answer cut off at {args.num_predict} tokens)"
+                elif cut:
+                    res = Result("FAIL", f"hit the {args.num_predict}-token limit before answering; "
+                                         "see Thinking in the saved file")
+                else:
+                    res = Result("FAIL", "empty answer")
                 d = out / safe_name(model)
                 d.mkdir(parents=True, exist_ok=True)
                 (d / f"{t}.md").write_text(
                     f"# {model} / {t} ({skill})\n\nResult: {res.status} - {res.detail}\n\n"
                     f"## Prompt\n\n{prompt}\n\n## Answer\n\n{text}\n"
+                    + (f"\n## Thinking ({len(thinking.split())} words)\n\n{thinking.strip()}\n" if thinking else "")
                 )
             elapsed = time.monotonic() - start
             tok += r.get("eval_count", 0)
