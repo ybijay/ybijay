@@ -188,7 +188,8 @@ def check_format(text: str) -> Result:
 
 
 def check_code(text: str) -> Result:
-    blocks = re.findall(r"```(?:python|py)?\s*\n(.*?)```", text, flags=re.S)
+    # Any fence label: ```python, ```Python, ```python3, ``` ...
+    blocks = re.findall(r"```[\w+.-]*[ \t]*\n(.*?)```", text, flags=re.S)
     if not blocks:
         return Result("FAIL", "no code block")
     with tempfile.TemporaryDirectory() as d:

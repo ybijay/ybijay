@@ -62,6 +62,15 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(ob.check_code(GOOD_CODE).status, "PASS")
         self.assertEqual(ob.check_code(SLOPPY_CODE).status, "FAIL")
         self.assertEqual(ob.check_code("no code here").status, "FAIL")
+        for label in ("Python", "python3", ""):
+            with self.subTest(label=label):
+                self.assertEqual(ob.check_code(GOOD_CODE.replace("```python", "```" + label)).status, "PASS")
+
+    def test_code_from_saved_answer_file(self):
+        # The saved .md holds the prompt (which mentions ```python inline) before the answer.
+        saved = f"## Prompt\n\n{ob.CODE_PROMPT}\n\n## Answer\n\n"
+        self.assertEqual(ob.check_code(saved + GOOD_CODE).status, "PASS")
+        self.assertEqual(ob.check_code(saved).status, "FAIL")
         self.assertEqual(ob.check_code("```python\nwhile True: pass\n```").status, "FAIL")
 
     def test_code_failure_names_the_input(self):
