@@ -138,7 +138,7 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn("20.0", out)  # 100 tokens / 5 s
             self.assertIn("over 250", out)
             self.assertTrue((Path(d) / "m1" / "code.md").exists())
-            self.assertIn("hit the 8192-token limit", out)
+            self.assertIn("hit the 16384-token limit", out)
             self.assertIn("## Thinking (50 words)", (Path(d) / "thinker" / "math.md").read_text())
             self.assertTrue(all("temperature" not in o for o in seen_options))
             self.assertTrue(all(o["seed"] == 42 for o in seen_options))

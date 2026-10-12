@@ -51,7 +51,8 @@ read *why* a model failed, and compare the `design` answers side by side.
   until they hit the token limit.
 - Thinking is stripped before grading but saved in the answer file; thinking
   time still counts toward speed and total time.
-- Answers are capped at 8192 tokens (`--num-predict`). A model that runs out
+- Answers are capped at 16384 tokens, thinking included (`--num-predict`).
+  Thinking models used 6-8k tokens on the harder tasks. A model that runs out
   before answering is reported as hitting the limit; read its Thinking section
   to see whether it was making progress or looping.
 - Six tasks are a quick signal, not a leaderboard. One FAIL can be bad luck;

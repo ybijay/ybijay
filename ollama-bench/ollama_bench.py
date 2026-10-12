@@ -265,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--host", default=DEFAULT_HOST)
     ap.add_argument("--tasks", default=",".join(TASKS), help=f"comma list (default: {','.join(TASKS)})")
     ap.add_argument("--out", default="bench-results", help="directory for full answers")
-    ap.add_argument("--num-predict", type=int, default=8192, help="max tokens per answer")
+    ap.add_argument("--num-predict", type=int, default=16384, help="max tokens per answer (thinking included)")
     ap.add_argument("--timeout", type=float, default=1200, help="seconds per task")
     ap.add_argument(
         "--temperature", type=float,
