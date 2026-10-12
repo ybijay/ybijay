@@ -80,6 +80,33 @@ class ParsingTests(unittest.TestCase):
                 self.assertEqual(ogm.normalize_host(given), want)
 
 
+class MismatchTests(unittest.TestCase):
+    def model(self, vram_gib):
+        return ogm.ModelMem("m", int(vram_gib * GiB), int(vram_gib * GiB))
+
+    def test_normal_overhead_is_quiet(self):
+        # Real readings: qwen3.8 at 64k (16.3 vs 19.9), qwen3-coder (20.5 vs 20.7).
+        self.assertIsNone(ogm.vram_mismatch([self.model(16.3)], int(19.9 * GiB)))
+        self.assertIsNone(ogm.vram_mismatch([self.model(20.5)], int(20.7 * GiB)))
+
+    def test_under_reported_model_warns(self):
+        # gemma4:31b reported 1.6 GiB while its runner held 22 GiB.
+        msg = ogm.vram_mismatch([self.model(1.6)], 22 * GiB)
+        self.assertIn("22.0 GiB", msg)
+        self.assertIn("20.4 GiB unaccounted", msg)
+
+    def test_stale_runner_with_nothing_listed_warns(self):
+        self.assertIsNotNone(ogm.vram_mismatch([], 10 * GiB))
+
+    def test_unknown_or_invisible_processes_are_quiet(self):
+        self.assertIsNone(ogm.vram_mismatch([self.model(1.6)], None))
+        self.assertIsNone(ogm.vram_mismatch([self.model(18)], 0))
+
+    def test_render_includes_warning(self):
+        out = ogm.render([self.model(1.6)], [], 22 * GiB)
+        self.assertIn("WARNING", out)
+
+
 class EndToEndTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -131,6 +158,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertIn("Ollama VRAM in use: 24.0 GiB", out)
         self.assertIn("nvidia-smi, ollama processes: 24.0 GiB", out)
         self.assertIn("GPU 0 NVIDIA GeForce RTX 4090", out)
+        self.assertNotIn("WARNING", out)
 
     def test_json_output(self):
         rc, out = self.run_main("--json")
@@ -138,6 +166,7 @@ class EndToEndTests(unittest.TestCase):
         data = json.loads(out)
         self.assertEqual([m["gpu_percent"] for m in data["models"]], [100, 60, 0])
         self.assertEqual(data["ollama_process_vram"], 24 * GiB)
+        self.assertIsNone(data["warning"])
 
     def test_unreachable_host(self):
         err = io.StringIO()

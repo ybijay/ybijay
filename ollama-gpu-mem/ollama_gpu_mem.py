@@ -21,6 +21,12 @@ from dataclasses import asdict, dataclass
 
 DEFAULT_HOST = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
 
+# nvidia-smi normally shows a bit more than Ollama's estimate (CUDA context,
+# compute buffers): up to ~3.5 GiB on a 64k-context model. Only flag gaps
+# well beyond that.
+MISMATCH_MIN_GAP = 4 * 1024**3
+MISMATCH_MIN_RATIO = 1.5
+
 
 @dataclass
 class ModelMem:
@@ -183,6 +189,28 @@ def fmt_bytes(n: int) -> str:
     return f"{value:.1f} GiB"
 
 
+def vram_mismatch(models: list[ModelMem], proc_vram: int | None) -> str | None:
+    """Warn when ollama processes hold far more VRAM than Ollama reports.
+
+    Ollama's scheduler decides what fits using its own figures, so a model it
+    under-reports (or a stale runner it no longer lists) can lead it to load a
+    second model on top and spill to CPU or run out of memory.
+    """
+    if not proc_vram:  # unknown, or nvidia-smi can't see processes (containers)
+        return None
+    reported = sum(m.size_vram for m in models)
+    gap = proc_vram - reported
+    if gap < MISMATCH_MIN_GAP or proc_vram < reported * MISMATCH_MIN_RATIO:
+        return None
+    return (
+        f"WARNING: ollama processes hold {fmt_bytes(proc_vram)} but Ollama reports "
+        f"{fmt_bytes(reported)} ({fmt_bytes(gap)} unaccounted). Ollama is "
+        "under-reporting a model's size, or a stale runner is holding VRAM. Its "
+        "scheduler trusts the reported figure; OLLAMA_MAX_LOADED_MODELS=1 avoids "
+        "loading a second model on top."
+    )
+
+
 def render(models: list[ModelMem], gpus: list[GpuMem], proc_vram: int | None = None) -> str:
     lines = []
     if not models:
@@ -207,12 +235,15 @@ def render(models: list[ModelMem], gpus: list[GpuMem], proc_vram: int | None = N
         lines.append(f"\nOllama VRAM in use: {fmt_bytes(total_vram)}")
     if proc_vram is not None:
         lines.append(f"nvidia-smi, ollama processes: {fmt_bytes(proc_vram)}")
+    warning = vram_mismatch(models, proc_vram)
 
     for g in gpus:
         pct = g.used / g.total * 100 if g.total else 0
         lines.append(
             f"GPU {g.index} {g.name}: {fmt_bytes(g.used)} / {fmt_bytes(g.total)} ({pct:.0f}%)"
         )
+    if warning:
+        lines.append("\n" + warning)
     return "\n".join(lines)
 
 
@@ -241,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
                 ],
                 "gpus": [asdict(g) for g in gpus],
                 "ollama_process_vram": proc_vram,
+                "warning": vram_mismatch(models, proc_vram),
             }
             print(json.dumps(out, indent=2))
         else:

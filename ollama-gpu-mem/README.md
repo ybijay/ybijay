@@ -31,8 +31,15 @@ GPU 0 NVIDIA GeForce RTX 4090: 23.9 GiB / 24.0 GiB (100%)
   decimal GB, so `ollama ps` numbers look ~7% bigger.
 - **Ollama VRAM vs nvidia-smi processes**: Ollama reports its *estimate*;
   nvidia-smi shows what the runner actually holds (including CUDA context
-  overhead). A gap of a few hundred MiB is normal. A large gap points at a stale
-  runner or at another app using the GPU.
+  overhead and compute buffers). A gap of up to ~3.5 GiB is normal, and grows
+  with context size. A much larger gap points at a stale runner or a model
+  Ollama under-reports.
+- **WARNING line**: printed when ollama processes hold at least 4 GiB *and* 1.5×
+  more than Ollama reports. Seen in practice with a model whose `size` Ollama
+  under-reports (gemma4:31b: 1.6 GiB reported, 22 GiB held). Ollama's scheduler
+  trusts its own figure, so it may load a second model on top; set
+  `OLLAMA_MAX_LOADED_MODELS=1` to prevent that. Also shown in `--json` as
+  `warning`. Skipped when nvidia-smi can't see processes (e.g. in containers).
 - Older Ollama builds omit `size_vram`; those models show as 100% CPU.
 
 ## Tests
